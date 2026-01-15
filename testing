@@ -1,0 +1,18 @@
+# Test Grafana APT repo
+#curl -I http://localhost/apt.grafana.com/dists/stable/InRelease
+curl -I http://localhost/apt.grafana.com/gpg-full.key
+# Should return 200 OK with X-Cache-Status header
+
+# Test Grafana RPM repo
+curl -I http://localhost/rpm.grafana.com/gpg-full.key
+# Should return 200 OK with X-Cache-Status header
+
+# Test blocked request (should return 403)
+curl http://localhost/some-other-domain.com/
+# Should return:  403 Forbidden
+
+# Check what's being blocked
+docker exec repoxy tail -f /var/log/nginx/blocked.log
+
+# Check cache hit/miss
+docker exec repoxy tail -f /var/log/nginx/access.log | grep "cache:"

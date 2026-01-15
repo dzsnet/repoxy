@@ -1,0 +1,17 @@
+services:
+  repoxy:
+    image: nginx:alpine
+    container_name: repoxy
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./cache:/var/cache/nginx
+      - ./logs:/var/log/nginx
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    environment:
+      - TZ=UTC

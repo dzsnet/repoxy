@@ -1,0 +1,170 @@
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log warn;
+pid /var/run/nginx.pid;
+
+events {
+    worker_connections 4096;
+    use epoll;
+    multi_accept on;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" '
+                    'cache: $upstream_cache_status';
+
+    access_log /var/log/nginx/access.log main;
+
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+
+    # DNS resolver configuration
+    resolver 8.8.4.4 8.8.8.8 valid=300s;
+    resolver_timeout 10s;
+
+    # Unified cache configuration
+    proxy_cache_path /var/cache/nginx/repos 
+                     levels=1:2 
+                     keys_zone=repo_cache:100m 
+                     max_size=5g 
+                     inactive=30d 
+                     use_temp_path=off;
+
+    server {
+        listen 80 default_server;
+        server_name _;
+
+        # Increase buffer sizes for repository metadata
+        proxy_buffer_size 128k;
+        proxy_buffers 4 256k;
+        proxy_busy_buffers_size 256k;
+
+        # Common proxy settings
+        proxy_cache repo_cache;
+        proxy_cache_valid 200 365d;
+        proxy_cache_valid 404 1h;
+        proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+        proxy_cache_lock on;
+        proxy_cache_revalidate on;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        
+        # Ignore upstream cache headers to force caching
+        proxy_ignore_headers Cache-Control Expires Set-Cookie;
+        
+        # Cache status header
+        add_header X-Cache-Status $upstream_cache_status always;
+        add_header X-Proxy-Cache "Repo-Cache-Proxy" always;
+
+        # ==========================================
+        # WHITELISTED REPOSITORIES
+        # ==========================================
+
+        # Grafana APT Repository
+        location ~ ^/apt\.grafana\.com/(.*)$ {
+            set $upstream_domain "apt.grafana.com";
+            set $upstream_path "/$1";
+            
+            # Cache metadata for 5 minutes, packages for 365 days
+            proxy_cache_valid 200 5m;
+            
+            proxy_pass https://$upstream_domain$upstream_path$is_args$args;
+            proxy_cache_key "$upstream_domain$upstream_path$is_args$args";
+            proxy_set_header Host $upstream_domain;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            
+            # SSL settings
+            proxy_ssl_server_name on;
+            proxy_ssl_protocols TLSv1.2 TLSv1.3;
+        }
+        
+        # Grafana APT Repository - Packages (long cache)
+        location ~ ^/apt\.grafana\.com/pool/.*\.(deb|tar\.gz|tar\.xz|tar\.bz2)$ {
+            set $upstream_domain "apt.grafana.com";
+            set $upstream_path $request_uri;
+            rewrite ^/apt\.grafana\.com(.*)$ $1 break;
+            
+            # Long cache for actual package files
+            proxy_cache_valid 200 365d;
+            
+            proxy_pass https://$upstream_domain$upstream_path$is_args$args;
+            proxy_cache_key "$upstream_domain$upstream_path$is_args$args";
+            proxy_set_header Host $upstream_domain;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            
+            proxy_ssl_server_name on;
+            proxy_ssl_protocols TLSv1.2 TLSv1.3;
+        }
+
+        # Grafana RPM Repository
+        location ~ ^/rpm\.grafana\.com/(.*)$ {
+            set $upstream_domain "rpm.grafana.com";
+            set $upstream_path "/$1";
+            
+            # Cache metadata for 5 minutes, packages for 365 days
+            proxy_cache_valid 200 5m;
+            
+            proxy_pass https://$upstream_domain$upstream_path$is_args$args;
+            proxy_cache_key "$upstream_domain$upstream_path$is_args$args";
+            proxy_set_header Host $upstream_domain;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            
+            proxy_ssl_server_name on;
+            proxy_ssl_protocols TLSv1.2 TLSv1.3;
+        }
+        
+        # Grafana RPM Repository - Packages (long cache)
+        location ~ ^/rpm\.grafana\.com/.*\.(rpm|tar\.gz|tar\.xz|tar\.bz2)$ {
+            set $upstream_domain "rpm.grafana.com";
+            set $upstream_path $request_uri;
+            rewrite ^/rpm\.grafana\.com(.*)$ $1 break;
+            
+            # Long cache for actual package files
+            proxy_cache_valid 200 365d;
+            
+            proxy_pass https://$upstream_domain$upstream_path$is_args$args;
+            proxy_cache_key "$upstream_domain$upstream_path$is_args$args";
+            proxy_set_header Host $upstream_domain;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            
+            proxy_ssl_server_name on;
+            proxy_ssl_protocols TLSv1.2 TLSv1.3;
+        }
+
+        # ==========================================
+        # STATUS/HEALTH CHECK ENDPOINT
+        # ==========================================
+        
+        location /proxy-status {
+            access_log off;
+            return 200 "OK";
+            add_header Content-Type text/plain;
+        }
+
+        # ==========================================
+        # DENY ALL OTHER REQUESTS
+        # ==========================================
+        
+        location / {
+            access_log /var/log/nginx/blocked.log main;
+            return 403 "403 Forbidden: Only whitelisted repositories are allowed.\nAllowed:  apt.grafana.com, rpm.grafana.com\n";
+            add_header Content-Type text/plain;
+        }
+    }
+}
