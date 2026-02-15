@@ -2,7 +2,7 @@
 
 A high-performance NGINX-based caching proxy for package repositories (APT, RPM, etc.). Reduces bandwidth usage and speeds up package installations by caching repository metadata and packages locally.
 
-The main purpose was to provide a dynamic repo mirror for Grafana Alloy without having the whole Grafana repo mirrored, but sky is the limit. (huarpvar - the only line here what is not AI generated ;))
+The main purpose was to provide a dynamic repo mirror for Grafana Alloy without having the whole Grafana repo mirrored, but sky is the limit. (DzS - the only line here what is not AI generated ;))
 
 ## Features
 
